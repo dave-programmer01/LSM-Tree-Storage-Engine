@@ -81,6 +81,3 @@ engine.delete("user:123");
 
 engine.close();
 ```
-
-## 📜 License
-This project is for educational purposes. Feel free to use and modify it!
