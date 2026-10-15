@@ -35,7 +35,7 @@ public class SSTable {
                 buffer.put(valueBytes);
                 buffer.flip();
 
-                channel.write(buffer);
+                writeFully(channel, buffer);
                 offset += 4 + keyBytes.length + 4 + valueBytes.length;
             }
 
@@ -46,7 +46,7 @@ public class SSTable {
             ByteBuffer countBuffer = ByteBuffer.allocate(4);
             countBuffer.putInt(index.size());
             countBuffer.flip();
-            channel.write(countBuffer);
+            writeFully(channel, countBuffer);
 
             // Write each index entry: [4-byte key length][key bytes][8-byte offset]
             for (Map.Entry<String, Long> indexEntry : index.entrySet()) {
@@ -56,14 +56,14 @@ public class SSTable {
                 indexBuffer.put(keyBytes);
                 indexBuffer.putLong(indexEntry.getValue());
                 indexBuffer.flip();
-                channel.write(indexBuffer);
+                writeFully(channel, indexBuffer);
             }
 
             // Write the footer: 8 bytes pointing to where the index starts
             ByteBuffer footerBuffer = ByteBuffer.allocate(8);
             footerBuffer.putLong(indexOffset);
             footerBuffer.flip();
-            channel.write(footerBuffer);
+            writeFully(channel, footerBuffer);
 
             // Ensure everything reaches disk
             channel.force(true);
@@ -76,7 +76,7 @@ public class SSTable {
             // Read the footer to find where the index starts
             ByteBuffer footerBuffer = ByteBuffer.allocate(8);
             channel.position(fileSize - 8);
-            channel.read(footerBuffer);
+            readFully(channel, footerBuffer);
             footerBuffer.flip();
             long indexOffset = footerBuffer.getLong();
 
@@ -85,7 +85,7 @@ public class SSTable {
 
             // Read how many entries are in the index
             ByteBuffer countBuffer = ByteBuffer.allocate(4);
-            channel.read(countBuffer);
+            readFully(channel, countBuffer);
             countBuffer.flip();
             int entryCount = countBuffer.getInt();
 
@@ -95,17 +95,17 @@ public class SSTable {
 
             for (int i = 0; i < entryCount; i++) {
                 sizeBuffer.clear();
-                channel.read(sizeBuffer);
+                readFully(channel, sizeBuffer);
                 sizeBuffer.flip();
                 int keyLen = sizeBuffer.getInt();
 
                 ByteBuffer keyBuffer = ByteBuffer.allocate(keyLen);
-                channel.read(keyBuffer);
+                readFully(channel, keyBuffer);
                 keyBuffer.flip();
                 String indexKey = new String(keyBuffer.array(), StandardCharsets.UTF_8);
 
                 ByteBuffer offsetBuffer = ByteBuffer.allocate(8);
-                channel.read(offsetBuffer);
+                readFully(channel, offsetBuffer);
                 offsetBuffer.flip();
                 long entryOffset = offsetBuffer.getLong();
 
@@ -125,25 +125,39 @@ public class SSTable {
             channel.position(dataOffset);
 
             sizeBuffer.clear();
-            channel.read(sizeBuffer);
+            readFully(channel, sizeBuffer);
             sizeBuffer.flip();
             int keyLen = sizeBuffer.getInt();
 
             // Skip past the key bytes
             ByteBuffer keyBuffer = ByteBuffer.allocate(keyLen);
-            channel.read(keyBuffer);
+            readFully(channel, keyBuffer);
 
             // Read the value length and value bytes
             sizeBuffer.clear();
-            channel.read(sizeBuffer);
+            readFully(channel, sizeBuffer);
             sizeBuffer.flip();
             int valueLen = sizeBuffer.getInt();
 
             ByteBuffer valueBuffer = ByteBuffer.allocate(valueLen);
-            channel.read(valueBuffer);
+            readFully(channel, valueBuffer);
             valueBuffer.flip();
 
             return new String(valueBuffer.array(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private static void writeFully(FileChannel channel, ByteBuffer buffer) throws IOException {
+        while (buffer.hasRemaining()) {
+            channel.write(buffer);
+        }
+    }
+
+    private static void readFully(FileChannel channel, ByteBuffer buffer) throws IOException {
+        while (buffer.hasRemaining()) {
+            if (channel.read(buffer) < 0) {
+                throw new IOException("Unexpected end of SSTable");
+            }
         }
     }
 }

@@ -14,6 +14,7 @@ public class StorageEngine {
     private int sstableCounter;
 
     public StorageEngine(Path dataDir) throws IOException {
+        Objects.requireNonNull(dataDir, "dataDir");
         this.dataDir = dataDir;
         Files.createDirectories(dataDir);
         this.memTable = new MemTable();
@@ -32,10 +33,13 @@ public class StorageEngine {
         if (!Files.exists(dataDir)) return;
 
         // Find all SSTable files, sorted by name (oldest first)
-        List<Path> existingFiles = Files.list(dataDir)
-                .filter(p -> p.getFileName().toString().startsWith("sstable_"))
-                .sorted(Comparator.comparing(p -> p.getFileName().toString()))
-                .collect(Collectors.toList());
+        List<Path> existingFiles;
+        try (var files = Files.list(dataDir)) {
+            existingFiles = files
+                    .filter(p -> p.getFileName().toString().startsWith("sstable_"))
+                    .sorted(Comparator.comparing(p -> p.getFileName().toString()))
+                    .collect(Collectors.toList());
+        }
 
         sstables.addAll(existingFiles);
 
@@ -59,6 +63,7 @@ public class StorageEngine {
         }
     }
     public void put(String key, String value) throws IOException {
+        ensureOpen();
         // Durability first: WAL ensures this write survives a crash
         wal.append(key, value);
         memTable.put(key, value);
@@ -66,6 +71,7 @@ public class StorageEngine {
     }
 
     public void delete(String key) throws IOException {
+        ensureOpen();
         // Deletes are writes too: store a tombstone marker
         wal.append(key, MemTable.TOMBSTONE);
         memTable.delete(key);
@@ -96,10 +102,33 @@ public class StorageEngine {
         System.out.println("Flushed MemTable to " + fileName);
     }
 
-    public void close() throws IOException {
-        wal.close();
+    public void flush() throws IOException {
+        ensureOpen();
+        flushMemTable();
     }
+
+    public void close() throws IOException {
+        if (wal != null) {
+            flushMemTable();
+            wal.close();
+            wal = null;
+        }
+    }
+
+    /**
+     * Closes the WAL without flushing the MemTable. This is only useful for
+     * crash-recovery demonstrations; normal callers should use close().
+     */
+    public void closeWithoutFlush() throws IOException {
+        if (wal != null) {
+            wal.close();
+            wal = null;
+        }
+    }
+
     public String get(String key) throws IOException {
+        ensureOpen();
+        Objects.requireNonNull(key, "key");
         // Check MemTable first (fastest, most recent data)
         String value = memTable.get(key);
         if (value != null) {
@@ -122,5 +151,11 @@ public class StorageEngine {
 
         // Key does not exist anywhere
         return null;
+    }
+
+    private void ensureOpen() throws IOException {
+        if (wal == null) {
+            throw new IOException("Storage engine is closed");
+        }
     }
 }

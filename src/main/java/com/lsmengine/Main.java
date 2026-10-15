@@ -39,7 +39,7 @@ public class Main {
         System.out.println("Data is in WAL but NOT in an SSTable yet.");
         System.out.println("Run with 'recover' argument to see WAL recovery in action.");
 
-        engine.close();
+        engine.closeWithoutFlush();
     }
     private static void recoverAndRead() throws IOException {
         System.out.println("=== Opening engine (WAL recovery will happen) ===");

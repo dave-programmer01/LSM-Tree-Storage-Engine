@@ -10,6 +10,7 @@ import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class WriteAheadLog {
 
@@ -17,7 +18,8 @@ public class WriteAheadLog {
 
     private FileChannel channel;
 
-    public  WriteAheadLog(Path dataDir) throws IOException {
+    public WriteAheadLog(Path dataDir) throws IOException {
+        Objects.requireNonNull(dataDir, "dataDir");
         this.walPath = dataDir.resolve("wal.log");
         Files.createDirectories(dataDir);
 
@@ -25,10 +27,12 @@ public class WriteAheadLog {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.READ);
-
+        channel.position(channel.size());
     }
 
     public void append(String key, String value) throws IOException {
+        Objects.requireNonNull(key, "key");
+        Objects.requireNonNull(value, "value");
 
         byte[] keyBytes = key.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         byte[] valueBytes = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -42,7 +46,7 @@ public class WriteAheadLog {
         buffer.flip();
 
 
-        channel.write(buffer);
+        writeFully(channel, buffer);
         channel.force(true);
     }
 
@@ -62,29 +66,31 @@ public class WriteAheadLog {
             while (readChannel.position() < readChannel.size()) {
                 // Read the key length (4 bytes)
                 sizeBuffer.clear();
-                int bytesRead = readChannel.read(sizeBuffer);
-                if (bytesRead < 4) break;
+                if (!readFully(readChannel, sizeBuffer)) break;
                 sizeBuffer.flip();
                 int keyLen = sizeBuffer.getInt();
+                if (!isValidLength(keyLen, readChannel.size() - readChannel.position())) {
+                    break;
+                }
 
                 // Read the key bytes
                 ByteBuffer keyBuffer = ByteBuffer.allocate(keyLen);
-                bytesRead = readChannel.read(keyBuffer);
-                if (bytesRead < keyLen) break;
+                if (!readFully(readChannel, keyBuffer)) break;
                 keyBuffer.flip();
                 String key = new String(keyBuffer.array(), java.nio.charset.StandardCharsets.UTF_8);
 
                 // Read the value length (4 bytes)
                 sizeBuffer.clear();
-                bytesRead = readChannel.read(sizeBuffer);
-                if (bytesRead < 4) break;
+                if (!readFully(readChannel, sizeBuffer)) break;
                 sizeBuffer.flip();
                 int valueLen = sizeBuffer.getInt();
+                if (!isValidLength(valueLen, readChannel.size() - readChannel.position())) {
+                    break;
+                }
 
                 // Read the value bytes
                 ByteBuffer valueBuffer = ByteBuffer.allocate(valueLen);
-                bytesRead = readChannel.read(valueBuffer);
-                if (bytesRead < valueLen) break;
+                if (!readFully(readChannel, valueBuffer)) break;
                 valueBuffer.flip();
                 String value = new String(valueBuffer.array(), java.nio.charset.StandardCharsets.UTF_8);
 
@@ -107,6 +113,28 @@ public class WriteAheadLog {
     }
 
     public void close() throws IOException {
-        channel.close();
+        if (channel.isOpen()) {
+            channel.close();
+        }
+    }
+
+    private static void writeFully(FileChannel channel, ByteBuffer buffer) throws IOException {
+        while (buffer.hasRemaining()) {
+            channel.write(buffer);
+        }
+    }
+
+    private static boolean readFully(FileChannel channel, ByteBuffer buffer) throws IOException {
+        while (buffer.hasRemaining()) {
+            int read = channel.read(buffer);
+            if (read < 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isValidLength(int length, long remainingBytes) {
+        return length >= 0 && length <= remainingBytes;
     }
 }

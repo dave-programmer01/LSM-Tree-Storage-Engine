@@ -19,6 +19,8 @@ public class MemTable {
         this.currentSizeBytes = 0;
     }
     public void put(String key, String value) {
+        Objects.requireNonNull(key, "key");
+        Objects.requireNonNull(value, "value");
         // Subtract old size if key already exists (prevents double-counting)
         String existing = data.get(key);
         if (existing != null) {
