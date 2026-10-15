@@ -10,6 +10,7 @@ A minimalist Log-Structured Merge-tree (LSM) storage engine implemented in Java.
 - **Crash Recovery**: Automatically replays the WAL on startup to restore data not yet flushed to SSTables.
 - **Tombstones**: Supports deletions by marking keys with a special tombstone value.
 - **Tiered Lookup**: Searches for keys in the MemTable first, then traverses SSTables from newest to oldest.
+- **Safe lifecycle**: `close()` flushes pending data; `closeWithoutFlush()` is available only for crash-recovery demonstrations.
 
 ## 📁 Project Structure
 
@@ -31,6 +32,7 @@ lsm-engine/
     - Every `put` or `delete` is first appended to the `WriteAheadLog`.
     - The data is then updated in the `MemTable`.
     - When the `MemTable` reaches a certain threshold, it is flushed to a new `SSTable` file on disk, and the WAL is cleared.
+    - Calling `flush()` explicitly performs the same flush operation.
 
 2.  **Read Path**:
     - The engine first checks the `MemTable`.
@@ -47,7 +49,7 @@ lsm-engine/
 
 ### Build
 ```bash
-mvn clean compile
+mvn clean test
 ```
 
 ### Run the Demo
@@ -79,5 +81,8 @@ System.out.println(value); // Alice
 // Delete data
 engine.delete("user:123");
 
-engine.close();
+engine.close(); // flushes pending data and closes the WAL
 ```
+
+The normal `close()` method is durable. The demo uses `closeWithoutFlush()` only
+to leave data in the WAL and demonstrate recovery on the next startup.
